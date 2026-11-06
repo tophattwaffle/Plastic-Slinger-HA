@@ -8,3 +8,89 @@ dismiss_print:
           min: 1
           max: 9999
           mode: box
+
+pause_print:
+  fields:
+    printer_id:
+      required: true
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 9999
+          mode: box
+
+resume_print:
+  fields:
+    printer_id:
+      required: true
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 9999
+          mode: box
+
+cancel_print:
+  fields:
+    printer_id:
+      required: true
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 9999
+          mode: box
+
+set_light:
+  fields:
+    printer_id:
+      required: true
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 9999
+          mode: box
+    on:
+      required: false
+      example: true
+      selector:
+        boolean:
+
+set_auto_unload:
+  fields:
+    printer_id:
+      required: true
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 9999
+          mode: box
+    mode:
+      required: false
+      example: "once"
+      selector:
+        select:
+          options:
+            - "off"
+            - "once"
+            - "always"
+
+skip_parts:
+  fields:
+    printer_id:
+      required: true
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 9999
+          mode: box
+    names:
+      required: true
+      example:
+        - "Part_1"
+      selector:
+        object:

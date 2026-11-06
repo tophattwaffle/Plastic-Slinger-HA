@@ -27,7 +27,7 @@ class NotFound(PlasticSlingerError):
 
 
 class PlasticSlingerApi:
-    """Reads active prints and camera snapshots, and clears finished prints from the glance view.
+    """Reads active prints and camera snapshots, and runs printer control commands.
     Authenticates with an API key created in Plastic Slinger (Settings -> API keys).
     """
 
@@ -43,6 +43,34 @@ class PlasticSlingerApi:
     async def async_dismiss_print(self, printer_id: int) -> dict[str, Any]:
         """Clears a held completed or failed print from the glance list."""
         return await self._request_json("POST", f"/glance/{int(printer_id)}/dismiss")
+
+    async def async_pause_print(self, printer_id: int) -> dict[str, Any]:
+        """Pauses the active print on a printer."""
+        return await self._request_json("POST", f"/printers/{int(printer_id)}/pause")
+
+    async def async_resume_print(self, printer_id: int) -> dict[str, Any]:
+        """Resumes a paused print on a printer."""
+        return await self._request_json("POST", f"/printers/{int(printer_id)}/resume")
+
+    async def async_cancel_print(self, printer_id: int) -> dict[str, Any]:
+        """Cancels the active or paused print on a printer."""
+        return await self._request_json("POST", f"/printers/{int(printer_id)}/cancel")
+
+    async def async_set_light(self, printer_id: int, on: bool | None = None) -> dict[str, Any]:
+        """Sets or toggles the chamber light on a printer."""
+        body: dict[str, Any] = {} if on is None else {"on": bool(on)}
+        return await self._request_json("POST", f"/printers/{int(printer_id)}/light", body)
+
+    async def async_set_auto_unload(self, printer_id: int, mode: str | None = None) -> dict[str, Any]:
+        """Sets or cycles the auto-unload-after-print mode ('off', 'once', 'always')."""
+        body: dict[str, Any] = {} if not mode else {"mode": str(mode)}
+        return await self._request_json("POST", f"/printers/{int(printer_id)}/auto-unload", body)
+
+    async def async_skip_parts(self, printer_id: int, names: list[str]) -> dict[str, Any]:
+        """Skips one or more parts (EXCLUDE_OBJECT) on a Moonraker printer mid-print."""
+        return await self._request_json(
+            "POST", f"/printers/{int(printer_id)}/skip-parts", {"names": list(names)}
+        )
 
     async def async_get_snapshot(self, printer_id: int) -> tuple[bytes, str]:
         """Fetches the printer's JPEG snapshot (or held last frame when powered off)."""
@@ -78,7 +106,12 @@ class PlasticSlingerApi:
                 if response.status == 404:
                     raise NotFound(f"HTTP 404 from {path}")
                 if response.status != 200:
-                    raise CannotConnect(f"HTTP {response.status} from {path}")
+                    try:
+                        err_json = await response.json()
+                        err_msg = err_json.get("error") or err_json.get("message")
+                    except Exception:
+                        err_msg = None
+                    raise CannotConnect(err_msg or f"HTTP {response.status} from {path}")
                 return await response.json()
         except (aiohttp.ClientError, TimeoutError, ValueError) as err:
             raise CannotConnect(str(err) or err.__class__.__name__) from err

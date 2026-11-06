@@ -62,6 +62,78 @@
           "description": "The Plastic Slinger printer ID, as id in the sensor's printers list."
         }
       }
+    },
+    "pause_print": {
+      "name": "Pause print",
+      "description": "Pauses the active print on a printer.",
+      "fields": {
+        "printer_id": {
+          "name": "Printer ID",
+          "description": "The Plastic Slinger printer ID."
+        }
+      }
+    },
+    "resume_print": {
+      "name": "Resume print",
+      "description": "Resumes a paused print on a printer.",
+      "fields": {
+        "printer_id": {
+          "name": "Printer ID",
+          "description": "The Plastic Slinger printer ID."
+        }
+      }
+    },
+    "cancel_print": {
+      "name": "Cancel print",
+      "description": "Cancels the active or paused print on a printer.",
+      "fields": {
+        "printer_id": {
+          "name": "Printer ID",
+          "description": "The Plastic Slinger printer ID."
+        }
+      }
+    },
+    "set_light": {
+      "name": "Set or toggle chamber light",
+      "description": "Turns the printer's chamber light on or off, or toggles it if on is omitted.",
+      "fields": {
+        "printer_id": {
+          "name": "Printer ID",
+          "description": "The Plastic Slinger printer ID."
+        },
+        "on": {
+          "name": "On",
+          "description": "True for on, false for off, or omit to toggle."
+        }
+      }
+    },
+    "set_auto_unload": {
+      "name": "Set or cycle auto-unload after print",
+      "description": "Sets or cycles the printer's auto-unload mode (off, once, always).",
+      "fields": {
+        "printer_id": {
+          "name": "Printer ID",
+          "description": "The Plastic Slinger printer ID."
+        },
+        "mode": {
+          "name": "Mode",
+          "description": "off, once, or always (omit to cycle to the next mode)."
+        }
+      }
+    },
+    "skip_parts": {
+      "name": "Skip print parts",
+      "description": "Skips one or more parts (EXCLUDE_OBJECT) on a Klipper/Moonraker printer mid-print.",
+      "fields": {
+        "printer_id": {
+          "name": "Printer ID",
+          "description": "The Plastic Slinger printer ID."
+        },
+        "names": {
+          "name": "Part names",
+          "description": "One or more part names reported by the printer for the running print."
+        }
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
-"""Config flow, sensor, snapshot proxy view, and dismiss_print action against a mocked Plastic Slinger service."""
+"""Config flow, sensor, snapshot proxy view, and printer control actions against a mocked Plastic Slinger service."""
 
 import pytest
 
@@ -95,6 +95,46 @@ async def test_dismiss_print_reports_unknown_printer(hass: HomeAssistant, aiocli
 
     with pytest.raises(ServiceValidationError):
         await hass.services.async_call(DOMAIN, "dismiss_print", {"printer_id": 999}, blocking=True)
+
+
+async def test_printer_control_services_call_api_and_refresh(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup(hass, aioclient_mock)
+    aioclient_mock.post(f"{URL}/api/v1/printers/3/pause", json={"printer_id": 3, "action": "pause", "success": True})
+    aioclient_mock.post(f"{URL}/api/v1/printers/3/resume", json={"printer_id": 3, "action": "resume", "success": True})
+    aioclient_mock.post(f"{URL}/api/v1/printers/3/cancel", json={"printer_id": 3, "action": "cancel", "success": True})
+    aioclient_mock.post(f"{URL}/api/v1/printers/3/light", json={"printer_id": 3, "action": "light", "success": True, "chamber_light_on": True})
+    aioclient_mock.post(f"{URL}/api/v1/printers/3/auto-unload", json={"printer_id": 3, "action": "auto_unload", "success": True, "auto_unload_mode": "once"})
+    aioclient_mock.post(f"{URL}/api/v1/printers/3/skip-parts", json={"printer_id": 3, "action": "skip_parts", "success": True})
+
+    res_pause = await hass.services.async_call(
+        DOMAIN, "pause_print", {"printer_id": 3}, blocking=True, return_response=True
+    )
+    assert res_pause["success"] is True
+
+    res_resume = await hass.services.async_call(
+        DOMAIN, "resume_print", {"printer_id": 3}, blocking=True, return_response=True
+    )
+    assert res_resume["success"] is True
+
+    res_light = await hass.services.async_call(
+        DOMAIN, "set_light", {"printer_id": 3, "on": True}, blocking=True, return_response=True
+    )
+    assert res_light["chamber_light_on"] is True
+
+    res_unload = await hass.services.async_call(
+        DOMAIN, "set_auto_unload", {"printer_id": 3, "mode": "once"}, blocking=True, return_response=True
+    )
+    assert res_unload["auto_unload_mode"] == "once"
+
+    res_skip = await hass.services.async_call(
+        DOMAIN, "skip_parts", {"printer_id": 3, "names": ["Part_1"]}, blocking=True, return_response=True
+    )
+    assert res_skip["success"] is True
+
+    res_cancel = await hass.services.async_call(
+        DOMAIN, "cancel_print", {"printer_id": 3}, blocking=True, return_response=True
+    )
+    assert res_cancel["success"] is True
 
 
 async def test_snapshot_proxy_view_serves_jpeg(hass: HomeAssistant, aioclient_mock, hass_client) -> None:

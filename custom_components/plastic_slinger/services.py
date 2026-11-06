@@ -1,4 +1,4 @@
-"""The dismiss_print action: clears a finished or failed print from the glance view."""
+"""Integration actions for clearing finished prints and controlling active printers."""
 
 from __future__ import annotations
 
@@ -7,14 +7,49 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 
 from .api import InvalidAuth, NotFound, PlasticSlingerError
-from .const import ATTR_PRINTER_ID, DOMAIN, SERVICE_DISMISS_PRINT
+from .const import (
+    ATTR_MODE,
+    ATTR_NAMES,
+    ATTR_ON,
+    ATTR_PRINTER_ID,
+    DOMAIN,
+    SERVICE_CANCEL_PRINT,
+    SERVICE_DISMISS_PRINT,
+    SERVICE_PAUSE_PRINT,
+    SERVICE_RESUME_PRINT,
+    SERVICE_SET_AUTO_UNLOAD,
+    SERVICE_SET_LIGHT,
+    SERVICE_SKIP_PARTS,
+)
 from .coordinator import PlasticSlingerCoordinator
 
-DISMISS_PRINT_SCHEMA = vol.Schema(
+PRINTER_ID_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_PRINTER_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    }
+)
+
+SET_LIGHT_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PRINTER_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_ON): cv.boolean,
+    }
+)
+
+SET_AUTO_UNLOAD_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PRINTER_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Optional(ATTR_MODE): vol.In(["off", "once", "always"]),
+    }
+)
+
+SKIP_PARTS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_PRINTER_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+        vol.Required(ATTR_NAMES): vol.All(cv.ensure_list, [cv.string], vol.Length(min=1)),
     }
 )
 
@@ -25,27 +60,82 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def dismiss_print(call: ServiceCall) -> dict:
         printer_id = int(call.data[ATTR_PRINTER_ID])
         coordinator = _coordinator_for(hass, printer_id)
-        try:
-            result = await coordinator.api.async_dismiss_print(printer_id)
-        except NotFound as err:
-            raise ServiceValidationError(
-                f"Plastic Slinger has no printer {printer_id}"
-            ) from err
-        except InvalidAuth as err:
-            raise HomeAssistantError("The Plastic Slinger API key was rejected") from err
-        except PlasticSlingerError as err:
-            raise HomeAssistantError(f"Can't reach Plastic Slinger: {err}") from err
-
+        result = await _run_api_call(printer_id, coordinator.api.async_dismiss_print(printer_id))
         coordinator.async_remove_dismissed_printer(printer_id)
         return {ATTR_PRINTER_ID: printer_id, "dismissed": bool(result.get("dismissed", True))}
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_DISMISS_PRINT,
-        dismiss_print,
-        schema=DISMISS_PRINT_SCHEMA,
-        supports_response=SupportsResponse.OPTIONAL,
-    )
+    async def pause_print(call: ServiceCall) -> dict:
+        printer_id = int(call.data[ATTR_PRINTER_ID])
+        coordinator = _coordinator_for(hass, printer_id)
+        result = await _run_api_call(printer_id, coordinator.api.async_pause_print(printer_id))
+        await coordinator.async_request_refresh()
+        return result
+
+    async def resume_print(call: ServiceCall) -> dict:
+        printer_id = int(call.data[ATTR_PRINTER_ID])
+        coordinator = _coordinator_for(hass, printer_id)
+        result = await _run_api_call(printer_id, coordinator.api.async_resume_print(printer_id))
+        await coordinator.async_request_refresh()
+        return result
+
+    async def cancel_print(call: ServiceCall) -> dict:
+        printer_id = int(call.data[ATTR_PRINTER_ID])
+        coordinator = _coordinator_for(hass, printer_id)
+        result = await _run_api_call(printer_id, coordinator.api.async_cancel_print(printer_id))
+        await coordinator.async_request_refresh()
+        return result
+
+    async def set_light(call: ServiceCall) -> dict:
+        printer_id = int(call.data[ATTR_PRINTER_ID])
+        on = call.data.get(ATTR_ON)
+        coordinator = _coordinator_for(hass, printer_id)
+        result = await _run_api_call(printer_id, coordinator.api.async_set_light(printer_id, on))
+        await coordinator.async_request_refresh()
+        return result
+
+    async def set_auto_unload(call: ServiceCall) -> dict:
+        printer_id = int(call.data[ATTR_PRINTER_ID])
+        mode = call.data.get(ATTR_MODE)
+        coordinator = _coordinator_for(hass, printer_id)
+        result = await _run_api_call(printer_id, coordinator.api.async_set_auto_unload(printer_id, mode))
+        await coordinator.async_request_refresh()
+        return result
+
+    async def skip_parts(call: ServiceCall) -> dict:
+        printer_id = int(call.data[ATTR_PRINTER_ID])
+        names = [str(n) for n in call.data[ATTR_NAMES] if str(n).strip()]
+        coordinator = _coordinator_for(hass, printer_id)
+        result = await _run_api_call(printer_id, coordinator.api.async_skip_parts(printer_id, names))
+        await coordinator.async_request_refresh()
+        return result
+
+    for name, handler, schema in (
+        (SERVICE_DISMISS_PRINT, dismiss_print, PRINTER_ID_SCHEMA),
+        (SERVICE_PAUSE_PRINT, pause_print, PRINTER_ID_SCHEMA),
+        (SERVICE_RESUME_PRINT, resume_print, PRINTER_ID_SCHEMA),
+        (SERVICE_CANCEL_PRINT, cancel_print, PRINTER_ID_SCHEMA),
+        (SERVICE_SET_LIGHT, set_light, SET_LIGHT_SCHEMA),
+        (SERVICE_SET_AUTO_UNLOAD, set_auto_unload, SET_AUTO_UNLOAD_SCHEMA),
+        (SERVICE_SKIP_PARTS, skip_parts, SKIP_PARTS_SCHEMA),
+    ):
+        hass.services.async_register(
+            DOMAIN,
+            name,
+            handler,
+            schema=schema,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+
+
+async def _run_api_call(printer_id: int, coro) -> dict:
+    try:
+        return await coro
+    except NotFound as err:
+        raise ServiceValidationError(f"Plastic Slinger has no printer {printer_id}") from err
+    except InvalidAuth as err:
+        raise HomeAssistantError("The Plastic Slinger API key was rejected") from err
+    except PlasticSlingerError as err:
+        raise HomeAssistantError(f"Plastic Slinger command failed: {err}") from err
 
 
 def _coordinator_for(hass: HomeAssistant, printer_id: int) -> PlasticSlingerCoordinator:
