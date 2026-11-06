@@ -1,0 +1,10 @@
+dismiss_print:
+  fields:
+    printer_id:
+      required: true
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 9999
+          mode: box

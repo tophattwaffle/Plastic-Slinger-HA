@@ -1,0 +1,13 @@
+{
+  "domain": "plastic_slinger",
+  "name": "Plastic Slinger",
+  "codeowners": ["@TopHATTwaffle"],
+  "config_flow": true,
+  "dependencies": ["http"],
+  "documentation": "https://github.com/TopHATTwaffle/Plastic-Slinger-HA",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/TopHATTwaffle/Plastic-Slinger-HA/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
