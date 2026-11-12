@@ -49,6 +49,9 @@
     "sensor": {
       "active_prints": {
         "name": "Active prints"
+      },
+      "notifications": {
+        "name": "Notifications"
       }
     }
   },
@@ -134,6 +137,20 @@
           "description": "One or more part names reported by the printer for the running print."
         }
       }
+    },
+    "dismiss_notification": {
+      "name": "Dismiss notification",
+      "description": "Dismisses a single visual notification from the Plastic Slinger notification feed.",
+      "fields": {
+        "notification_id": {
+          "name": "Notification ID",
+          "description": "The Plastic Slinger notification ID, as id in the sensor's notifications list."
+        }
+      }
+    },
+    "dismiss_all_notifications": {
+      "name": "Dismiss all notifications",
+      "description": "Dismisses all active visual notifications in the Plastic Slinger notification feed."
     }
   }
 }
