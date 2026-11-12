@@ -13,10 +13,13 @@ from .api import InvalidAuth, NotFound, PlasticSlingerError
 from .const import (
     ATTR_MODE,
     ATTR_NAMES,
+    ATTR_NOTIFICATION_ID,
     ATTR_ON,
     ATTR_PRINTER_ID,
     DOMAIN,
     SERVICE_CANCEL_PRINT,
+    SERVICE_DISMISS_ALL_NOTIFICATIONS,
+    SERVICE_DISMISS_NOTIFICATION,
     SERVICE_DISMISS_PRINT,
     SERVICE_PAUSE_PRINT,
     SERVICE_RESUME_PRINT,
@@ -31,6 +34,14 @@ PRINTER_ID_SCHEMA = vol.Schema(
         vol.Required(ATTR_PRINTER_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
     }
 )
+
+NOTIFICATION_ID_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_NOTIFICATION_ID): vol.All(vol.Coerce(int), vol.Range(min=1)),
+    }
+)
+
+EMPTY_SCHEMA = vol.Schema({})
 
 SET_LIGHT_SCHEMA = vol.Schema(
     {
@@ -109,6 +120,31 @@ def async_setup_services(hass: HomeAssistant) -> None:
         await coordinator.async_request_refresh()
         return result
 
+    async def dismiss_notification(call: ServiceCall) -> dict:
+        notification_id = int(call.data[ATTR_NOTIFICATION_ID])
+        coordinator = _coordinator_for_notification(hass, notification_id)
+        try:
+            result = await coordinator.api.async_dismiss_notification(notification_id)
+        except NotFound as err:
+            raise ServiceValidationError(f"Plastic Slinger has no notification {notification_id}") from err
+        except InvalidAuth as err:
+            raise HomeAssistantError("The Plastic Slinger API key was rejected") from err
+        except PlasticSlingerError as err:
+            raise HomeAssistantError(f"Plastic Slinger command failed: {err}") from err
+        coordinator.async_remove_dismissed_notification(notification_id)
+        return {ATTR_NOTIFICATION_ID: notification_id, "dismissed": bool(result.get("dismissed", True))}
+
+    async def dismiss_all_notifications(call: ServiceCall) -> dict:
+        coordinator = _first_coordinator(hass)
+        try:
+            result = await coordinator.api.async_dismiss_all_notifications()
+        except InvalidAuth as err:
+            raise HomeAssistantError("The Plastic Slinger API key was rejected") from err
+        except PlasticSlingerError as err:
+            raise HomeAssistantError(f"Plastic Slinger command failed: {err}") from err
+        coordinator.async_clear_all_notifications()
+        return {"ok": True, "dismissed_count": int(result.get("dismissed_count", 0))}
+
     for name, handler, schema in (
         (SERVICE_DISMISS_PRINT, dismiss_print, PRINTER_ID_SCHEMA),
         (SERVICE_PAUSE_PRINT, pause_print, PRINTER_ID_SCHEMA),
@@ -117,6 +153,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         (SERVICE_SET_LIGHT, set_light, SET_LIGHT_SCHEMA),
         (SERVICE_SET_AUTO_UNLOAD, set_auto_unload, SET_AUTO_UNLOAD_SCHEMA),
         (SERVICE_SKIP_PARTS, skip_parts, SKIP_PARTS_SCHEMA),
+        (SERVICE_DISMISS_NOTIFICATION, dismiss_notification, NOTIFICATION_ID_SCHEMA),
+        (SERVICE_DISMISS_ALL_NOTIFICATIONS, dismiss_all_notifications, EMPTY_SCHEMA),
     ):
         hass.services.async_register(
             DOMAIN,
@@ -138,6 +176,17 @@ async def _run_api_call(printer_id: int, coro) -> dict:
         raise HomeAssistantError(f"Plastic Slinger command failed: {err}") from err
 
 
+def _first_coordinator(hass: HomeAssistant) -> PlasticSlingerCoordinator:
+    coordinators: list[PlasticSlingerCoordinator] = [
+        entry.runtime_data
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.state is ConfigEntryState.LOADED
+    ]
+    if not coordinators:
+        raise ServiceValidationError("Plastic Slinger isn't set up")
+    return coordinators[0]
+
+
 def _coordinator_for(hass: HomeAssistant, printer_id: int) -> PlasticSlingerCoordinator:
     """The loaded entry that has this printer on its glance list, else the first loaded entry."""
     coordinators: list[PlasticSlingerCoordinator] = [
@@ -149,5 +198,20 @@ def _coordinator_for(hass: HomeAssistant, printer_id: int) -> PlasticSlingerCoor
         raise ServiceValidationError("Plastic Slinger isn't set up")
     for coordinator in coordinators:
         if coordinator.has_printer(printer_id):
+            return coordinator
+    return coordinators[0]
+
+
+def _coordinator_for_notification(hass: HomeAssistant, notification_id: int) -> PlasticSlingerCoordinator:
+    """The loaded entry that has this notification on its feed, else the first loaded entry."""
+    coordinators: list[PlasticSlingerCoordinator] = [
+        entry.runtime_data
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.state is ConfigEntryState.LOADED
+    ]
+    if not coordinators:
+        raise ServiceValidationError("Plastic Slinger isn't set up")
+    for coordinator in coordinators:
+        if coordinator.has_notification(notification_id):
             return coordinator
     return coordinators[0]

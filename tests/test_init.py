@@ -11,16 +11,21 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.plastic_slinger.const import CONF_SCAN_INTERVAL, CONF_VERIFY_SSL, DOMAIN
 
-from .conftest import API_KEY, DEFAULT_STATUS_COLORS, URL, mock_service, printer_tile
+from .conftest import API_KEY, DEFAULT_STATUS_COLORS, URL, mock_service, notification_item, printer_tile
 
 PRINTERS = [
     printer_tile(3, "PrinterA", status="printing", progress=48, remaining_seconds=1800, can_dismiss=False),
     printer_tile(5, "PrinterB", status="complete", progress=100, remaining_seconds=0, can_dismiss=True, is_powered_off=True),
 ]
 
+NOTIFICATIONS = [
+    notification_item(11, "Spaghetti failure detected on PrinterA", severity="critical", event_type="SpaghettiWarning"),
+    notification_item(12, "Print paused on PrinterB", severity="warning", event_type="PrintPaused", printer_id=5, printer_name="PrinterB"),
+]
 
-async def _setup(hass: HomeAssistant, aioclient_mock, printers=PRINTERS) -> MockConfigEntry:
-    mock_service(aioclient_mock, printers)
+
+async def _setup(hass: HomeAssistant, aioclient_mock, printers=PRINTERS, notifications=NOTIFICATIONS) -> MockConfigEntry:
+    mock_service(aioclient_mock, printers, notifications=notifications)
     entry = MockConfigEntry(
         domain=DOMAIN, unique_id=URL, data={CONF_URL: URL, CONF_API_KEY: API_KEY, CONF_VERIFY_SSL: True}
     )
@@ -190,3 +195,58 @@ async def test_brief_outage_keeps_last_data_then_goes_unavailable(hass: HomeAssi
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get("sensor.plastic_slinger_active_prints").state == "unavailable"
+
+
+async def test_notifications_sensor_and_dismiss_actions(hass: HomeAssistant, aioclient_mock) -> None:
+    await _setup(hass, aioclient_mock)
+
+    notif_state = hass.states.get("sensor.plastic_slinger_notifications")
+    assert notif_state is not None
+    assert notif_state.state == "2"
+    assert notif_state.attributes["active_count"] == 2
+    assert notif_state.attributes["critical_count"] == 1
+    assert notif_state.attributes["warning_count"] == 1
+    assert notif_state.attributes["status_colors"] == DEFAULT_STATUS_COLORS
+    assert [n["id"] for n in notif_state.attributes["notifications"]] == [11, 12]
+
+    notif_entity = hass.data["entity_components"]["sensor"].get_entity("sensor.plastic_slinger_notifications")
+    assert "notifications" in notif_entity._unrecorded_attributes
+    assert "status_colors" in notif_entity._unrecorded_attributes
+
+    aioclient_mock.post(f"{URL}/api/v1/notifications/11/dismiss", json={"ok": True, "id": 11, "dismissed": True})
+    res_dismiss = await hass.services.async_call(
+        DOMAIN, "dismiss_notification", {"notification_id": 11}, blocking=True, return_response=True
+    )
+    assert res_dismiss == {"notification_id": 11, "dismissed": True}
+
+    notif_state = hass.states.get("sensor.plastic_slinger_notifications")
+    assert notif_state.state == "1"
+    assert notif_state.attributes["critical_count"] == 0
+    assert notif_state.attributes["warning_count"] == 1
+    assert [n["id"] for n in notif_state.attributes["notifications"]] == [12]
+
+    aioclient_mock.post(f"{URL}/api/v1/notifications/dismiss-all", json={"ok": True, "dismissed_count": 1})
+    res_all = await hass.services.async_call(
+        DOMAIN, "dismiss_all_notifications", {}, blocking=True, return_response=True
+    )
+    assert res_all == {"ok": True, "dismissed_count": 1}
+
+    notif_state = hass.states.get("sensor.plastic_slinger_notifications")
+    assert notif_state.state == "0"
+    assert notif_state.attributes["notifications"] == []
+
+
+async def test_notification_image_proxy_view_serves_jpeg(hass: HomeAssistant, aioclient_mock, hass_client) -> None:
+    await _setup(hass, aioclient_mock)
+    jpeg_bytes = b"\xff\xd8\x11\x22\xff\xd9"
+    aioclient_mock.get(
+        f"{URL}/api/v1/notifications/11/image",
+        content=jpeg_bytes,
+        headers={"Content-Type": "image/jpeg"},
+    )
+
+    client = await hass_client()
+    resp = await client.get("/api/plastic_slinger/notification_image/11")
+    assert resp.status == 200
+    assert resp.headers.get("Content-Type") == "image/jpeg"
+    assert await resp.read() == jpeg_bytes

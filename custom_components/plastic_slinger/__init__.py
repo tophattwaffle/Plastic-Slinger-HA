@@ -14,7 +14,7 @@ from homeassistant.helpers.typing import ConfigType
 from .api import PlasticSlingerApi
 from .const import CONF_VERIFY_SSL, DOMAIN, scan_interval
 from .coordinator import PlasticSlingerConfigEntry, PlasticSlingerCoordinator
-from .http import PlasticSlingerSnapshotView
+from .http import PlasticSlingerNotificationImageView, PlasticSlingerSnapshotView
 from .services import async_setup_services
 
 PLATFORMS = [Platform.SENSOR]
@@ -23,9 +23,10 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the dismiss_print action and the authenticated snapshot proxy view."""
+    """Register the integration actions and the authenticated snapshot and notification image proxy views."""
     async_setup_services(hass)
     hass.http.register_view(PlasticSlingerSnapshotView())
+    hass.http.register_view(PlasticSlingerNotificationImageView())
     return True
 
 

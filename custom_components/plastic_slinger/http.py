@@ -45,6 +45,38 @@ class PlasticSlingerSnapshotView(HomeAssistantView):
         )
 
 
+class PlasticSlingerNotificationImageView(HomeAssistantView):
+    """Proxies GET /api/v1/notifications/{notification_id}/image through Home Assistant's authenticated HTTP pipeline."""
+
+    url = "/api/plastic_slinger/notification_image/{notification_id}"
+    name = "api:plastic_slinger:notification_image"
+    requires_auth = True
+
+    async def get(self, request: web.Request, notification_id: str) -> web.Response:
+        try:
+            nid = int(notification_id)
+        except (TypeError, ValueError):
+            return web.Response(status=400, text="Invalid notification_id")
+
+        hass: HomeAssistant = request.app["hass"]
+        coordinator = _coordinator_for_notification(hass, nid)
+        if coordinator is None:
+            return web.Response(status=503, text="Plastic Slinger is not loaded")
+
+        try:
+            body, content_type = await coordinator.api.async_get_notification_image(nid)
+        except NotFound:
+            return web.Response(status=404, text="Notification image unavailable")
+        except PlasticSlingerError as err:
+            return web.Response(status=502, text=f"Upstream notification image error: {err}")
+
+        return web.Response(
+            body=body,
+            content_type=content_type.split(";")[0].strip() or "image/jpeg",
+            headers={"Cache-Control": "private, max-age=300"},
+        )
+
+
 def _coordinator_for_printer(hass: HomeAssistant, printer_id: int) -> PlasticSlingerCoordinator | None:
     coordinators: list[PlasticSlingerCoordinator] = [
         entry.runtime_data
@@ -55,5 +87,19 @@ def _coordinator_for_printer(hass: HomeAssistant, printer_id: int) -> PlasticSli
         return None
     for coordinator in coordinators:
         if coordinator.has_printer(printer_id):
+            return coordinator
+    return coordinators[0]
+
+
+def _coordinator_for_notification(hass: HomeAssistant, notification_id: int) -> PlasticSlingerCoordinator | None:
+    coordinators: list[PlasticSlingerCoordinator] = [
+        entry.runtime_data
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.state is ConfigEntryState.LOADED
+    ]
+    if not coordinators:
+        return None
+    for coordinator in coordinators:
+        if coordinator.has_notification(notification_id):
             return coordinator
     return coordinators[0]

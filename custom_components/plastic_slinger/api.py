@@ -72,6 +72,42 @@ class PlasticSlingerApi:
             "POST", f"/printers/{int(printer_id)}/skip-parts", {"names": list(names)}
         )
 
+    async def async_get_notifications(
+        self, include_dismissed: bool = False, limit: int = 50
+    ) -> dict[str, Any]:
+        """Active visual notifications plus severity counts and status colors."""
+        inc = "true" if include_dismissed else "false"
+        return await self._request_json(
+            "GET", f"/notifications?include_dismissed={inc}&limit={int(limit)}"
+        )
+
+    async def async_dismiss_notification(self, notification_id: int) -> dict[str, Any]:
+        """Dismisses a single visual notification by ID."""
+        return await self._request_json("POST", f"/notifications/{int(notification_id)}/dismiss")
+
+    async def async_dismiss_all_notifications(self) -> dict[str, Any]:
+        """Dismisses all active visual notifications."""
+        return await self._request_json("POST", "/notifications/dismiss-all")
+
+    async def async_get_notification_image(self, notification_id: int) -> tuple[bytes, str]:
+        """Fetches the image attached to a notification (camera snapshot, PrintGuard frame, or thumbnail)."""
+        path = f"/notifications/{int(notification_id)}/image"
+        try:
+            async with asyncio.timeout(15), self._session.get(
+                f"{self._url}{API_PREFIX}{path}",
+                headers={"Authorization": f"Bearer {self._api_key}", "Accept": "image/*"},
+            ) as response:
+                if response.status == 401:
+                    raise InvalidAuth("The API key was rejected")
+                if response.status == 404:
+                    raise NotFound(f"HTTP 404 from {path}")
+                if response.status != 200:
+                    raise CannotConnect(f"HTTP {response.status} from {path}")
+                content_type = response.headers.get("Content-Type", "image/jpeg")
+                return await response.read(), content_type
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise CannotConnect(str(err) or err.__class__.__name__) from err
+
     async def async_get_snapshot(self, printer_id: int) -> tuple[bytes, str]:
         """Fetches the printer's JPEG snapshot (or held last frame when powered off)."""
         path = f"/printers/{int(printer_id)}/snapshot"

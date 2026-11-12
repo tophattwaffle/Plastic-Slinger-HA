@@ -94,3 +94,17 @@ skip_parts:
         - "Part_1"
       selector:
         object:
+
+dismiss_notification:
+  fields:
+    notification_id:
+      required: true
+      example: 14
+      selector:
+        number:
+          min: 1
+          max: 999999
+          mode: box
+
+dismiss_all_notifications:
+  fields: {}
